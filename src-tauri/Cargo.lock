@@ -2975,6 +2975,7 @@ name = "slipstream"
 version = "0.1.0"
 dependencies = [
  "pulldown-cmark",
+ "pulldown-cmark-escape",
  "serde",
  "serde_json",
  "tauri",

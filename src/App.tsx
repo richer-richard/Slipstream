@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Toolbar from "./Toolbar";
+import { useScrollSync } from "./useScrollSync";
 
 interface SyncPayload {
   content: string;
@@ -17,6 +18,7 @@ function App() {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [windowLabel, setWindowLabel] = useState("");
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const isRemoteUpdate = useRef(false);
 
   // Initialize: get current state from backend
@@ -173,6 +175,8 @@ function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave, handleOpen, handleNewWindow]);
 
+  useScrollSync(editorRef, previewRef, html);
+
   const fileName = filePath ? filePath.split("/").pop() : "Untitled";
 
   return (
@@ -252,6 +256,7 @@ function App() {
             Preview
           </div>
           <div
+            ref={previewRef}
             className="markdown-preview flex-1 overflow-auto p-6"
             dangerouslySetInnerHTML={{ __html: html }}
           />
