@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="100%" stop-color="#0a0816"/>
+    </linearGradient>
+    <linearGradient id="s" x1="274" y1="210" x2="750" y2="810" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <!-- Full square background (macOS applies its own rounded mask) -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- Subtle glow behind the S -->
+  <path d="M 350 210 C 750 210, 750 470, 512 510 C 274 550, 274 810, 674 810"
+        fill="none" stroke="url(#s)" stroke-width="120" stroke-linecap="round" opacity="0.15"/>
+  <!-- Main flowing S stroke -->
+  <path d="M 350 210 C 750 210, 750 470, 512 510 C 274 550, 274 810, 674 810"
+        fill="none" stroke="url(#s)" stroke-width="72" stroke-linecap="round"/>
+</svg>

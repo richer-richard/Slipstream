@@ -2,6 +2,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::path::Path;
 use std::sync::Mutex;
 use tauri::{Emitter, State, WebviewUrl, WebviewWindowBuilder};
 
@@ -32,9 +33,90 @@ fn byte_offset_to_line(source: &str, offset: usize) -> usize {
         .count()
 }
 
+/// Percent-encode a filesystem path for use in a URL.
+fn percent_encode_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
+    for &byte in path.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
+            | b'-' | b'_' | b'.' | b'/' | b'~' => encoded.push(byte as char),
+            _ => write!(encoded, "%{:02X}", byte).unwrap(),
+        }
+    }
+    encoded
+}
+
+/// Percent-decode a URL path back to a filesystem path.
+fn percent_decode_path(input: &str) -> String {
+    let mut output = Vec::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&input[i + 1..i + 3], 16) {
+                output.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        output.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&output).into_owned()
+}
+
+/// Resolve a potentially relative image URL to an absolute localimage:// URL.
+fn resolve_image_url(dest_url: &str, base_dir: Option<&str>) -> String {
+    // Already an absolute URL — return as-is
+    if dest_url.starts_with("http://")
+        || dest_url.starts_with("https://")
+        || dest_url.starts_with("data:")
+        || dest_url.starts_with("file://")
+        || dest_url.starts_with("localimage://")
+    {
+        return dest_url.to_string();
+    }
+
+    let base = match base_dir {
+        Some(dir) => dir,
+        None => return dest_url.to_string(),
+    };
+
+    let abs_path = if dest_url.starts_with('/') {
+        dest_url.to_string()
+    } else {
+        let path = Path::new(base).join(dest_url);
+        path.to_string_lossy().into_owned()
+    };
+
+    format!("localimage://localhost{}", percent_encode_path(&abs_path))
+}
+
+/// Guess MIME type from a file extension.
+fn guess_mime_type(path: &str) -> &'static str {
+    match Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        _ => "application/octet-stream",
+    }
+}
+
 /// Parse Markdown to HTML using pulldown-cmark with all extensions enabled.
 /// Injects `data-source-line="N"` attributes on block-level elements for scroll sync.
-fn markdown_to_html(markdown: &str) -> String {
+/// When `base_dir` is provided, relative image paths are resolved to localimage:// URLs.
+fn markdown_to_html(markdown: &str, base_dir: Option<&str>) -> String {
     let options = Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
@@ -229,7 +311,8 @@ fn markdown_to_html(markdown: &str) -> String {
                         html_output.push('>');
                     }
                     Tag::Image { link_type: _, dest_url, title: _, id: _ } => {
-                        write!(html_output, "<img src=\"{}\" alt=\"", dest_url).unwrap();
+                        let resolved_src = resolve_image_url(dest_url, base_dir);
+                        write!(html_output, "<img src=\"{}\" alt=\"", resolved_src).unwrap();
                         // alt text will be filled by Text events; we handle it below
                         // Actually, pulldown-cmark puts alt text as child events
                         // For simplicity, we just open the tag and collect text
@@ -380,7 +463,12 @@ fn update_content(
     content: String,
     source_window: String,
 ) -> Result<String, String> {
-    let html = markdown_to_html(&content);
+    let base_dir = {
+        let fp = state.file_path.lock().map_err(|e| e.to_string())?;
+        fp.as_ref()
+            .and_then(|p| Path::new(p).parent().map(|d| d.to_string_lossy().into_owned()))
+    };
+    let html = markdown_to_html(&content, base_dir.as_deref());
 
     // Update centralized state
     {
@@ -404,7 +492,12 @@ fn update_content(
 #[tauri::command]
 fn get_content(state: State<'_, DocumentState>) -> Result<SyncPayload, String> {
     let content = state.content.lock().map_err(|e| e.to_string())?.clone();
-    let html = markdown_to_html(&content);
+    let base_dir = {
+        let fp = state.file_path.lock().map_err(|e| e.to_string())?;
+        fp.as_ref()
+            .and_then(|p| Path::new(p).parent().map(|d| d.to_string_lossy().into_owned()))
+    };
+    let html = markdown_to_html(&content, base_dir.as_deref());
     Ok(SyncPayload {
         content,
         html,
@@ -415,7 +508,7 @@ fn get_content(state: State<'_, DocumentState>) -> Result<SyncPayload, String> {
 /// Parse markdown to HTML (stateless utility).
 #[tauri::command]
 fn parse_markdown(content: String) -> String {
-    markdown_to_html(&content)
+    markdown_to_html(&content, None)
 }
 
 /// Open a new editor window.
@@ -452,7 +545,10 @@ fn open_file(
     path: String,
 ) -> Result<SyncPayload, String> {
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let html = markdown_to_html(&content);
+    let base_dir = Path::new(&path)
+        .parent()
+        .map(|d| d.to_string_lossy().into_owned());
+    let html = markdown_to_html(&content, base_dir.as_deref());
 
     {
         let mut doc = state.content.lock().map_err(|e| e.to_string())?;
@@ -495,6 +591,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .register_uri_scheme_protocol("localimage", |_ctx, request| {
+            let raw_path = request.uri().path();
+            let path = percent_decode_path(raw_path);
+            match std::fs::read(&path) {
+                Ok(data) => {
+                    let mime = guess_mime_type(&path);
+                    http::Response::builder()
+                        .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(data)
+                        .unwrap()
+                }
+                Err(_) => http::Response::builder()
+                    .status(http::StatusCode::NOT_FOUND)
+                    .body(Vec::new())
+                    .unwrap(),
+            }
+        })
         .manage(DocumentState {
             content: Mutex::new(String::from(
                 "# Welcome to Slipstream\n\nStart typing your Markdown here...\n\n## Features\n\n- **Real-time preview** with live rendering\n- **Multi-window sync** — open a new window and type in either\n- **Native file dialogs** for Open and Save\n- **GitHub Flavored Markdown** support\n\n---\n\n> Slipstream: A local-first, high-performance Markdown editor.\n",

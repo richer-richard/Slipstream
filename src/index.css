@@ -153,6 +153,22 @@ body {
   margin: 0.5em 0;
 }
 
+.markdown-preview ul {
+  list-style-type: disc;
+}
+
+.markdown-preview ol {
+  list-style-type: decimal;
+}
+
+.markdown-preview ul ul {
+  list-style-type: circle;
+}
+
+.markdown-preview ul ul ul {
+  list-style-type: square;
+}
+
 .markdown-preview li {
   margin: 0.25em 0;
 }

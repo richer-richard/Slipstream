@@ -16,6 +16,7 @@ function App() {
   const [content, setContent] = useState("");
   const [html, setHtml] = useState("");
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
   const [windowLabel, setWindowLabel] = useState("");
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -63,6 +64,7 @@ function App() {
     async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newContent = e.target.value;
       setContent(newContent);
+      setIsDirty(true);
 
       try {
         const result = await invoke<string>("update_content", {
@@ -94,6 +96,7 @@ function App() {
           textarea.selectionStart = textarea.selectionEnd = start + 2;
         });
         // Sync the change
+        setIsDirty(true);
         invoke<string>("update_content", {
           content: newValue,
           sourceWindow: windowLabel,
@@ -118,6 +121,7 @@ function App() {
         setContent(result.content);
         setHtml(result.html);
         setFilePath(selected);
+        setIsDirty(false);
       }
     } catch (e) {
       console.error("Failed to open file:", e);
@@ -141,6 +145,7 @@ function App() {
       }
       await invoke("save_file", { path });
       setFilePath(path);
+      setIsDirty(false);
     } catch (e) {
       console.error("Failed to save file:", e);
     }
@@ -196,7 +201,7 @@ function App() {
         {/* Title */}
         <div className="flex items-center gap-2 select-none">
           <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-            {fileName}
+            {isDirty ? `${fileName} \u2022` : fileName}
           </span>
           {filePath && (
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
