@@ -180,7 +180,7 @@ function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave, handleOpen, handleNewWindow]);
 
-  useScrollSync(editorRef, previewRef, html);
+  useScrollSync(editorRef, previewRef, html, content);
 
   const fileName = filePath ? filePath.split("/").pop() : "Untitled";
 
